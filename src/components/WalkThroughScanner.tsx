@@ -24,6 +24,39 @@ import { Student, ActiveTrack } from '../types';
 
 export type TurnstileGateStatus = 'READY' | 'OPENING' | 'PASSING';
 
+// Palet Warna Sensor Dinamis untuk Setiap Orang Berbeda
+const SENSOR_PALETTES = [
+  { stroke: '#06b6d4', glow: 'rgba(6, 182, 212, 0.45)', bg: 'rgba(6, 182, 212, 0.12)', headerBg: '#083344', text: '#67e8f9', tag: 'CYAN' },
+  { stroke: '#a855f7', glow: 'rgba(168, 85, 247, 0.45)', bg: 'rgba(168, 85, 247, 0.12)', headerBg: '#3b0764', text: '#d8b4fe', tag: 'VIOLET' },
+  { stroke: '#f59e0b', glow: 'rgba(245, 158, 11, 0.45)', bg: 'rgba(245, 158, 11, 0.12)', headerBg: '#451a03', text: '#fde68a', tag: 'AMBER' },
+  { stroke: '#38bdf8', glow: 'rgba(56, 189, 248, 0.45)', bg: 'rgba(56, 189, 248, 0.12)', headerBg: '#082f49', text: '#bae6fd', tag: 'SKY' },
+  { stroke: '#f43f5e', glow: 'rgba(244, 63, 94, 0.45)', bg: 'rgba(244, 63, 94, 0.12)', headerBg: '#4c0519', text: '#fecdd3', tag: 'ROSE' },
+  { stroke: '#2dd4bf', glow: 'rgba(45, 212, 191, 0.45)', bg: 'rgba(45, 212, 191, 0.12)', headerBg: '#042f2e', text: '#99f6e4', tag: 'TEAL' },
+  { stroke: '#fb923c', glow: 'rgba(251, 146, 60, 0.45)', bg: 'rgba(251, 146, 60, 0.12)', headerBg: '#431407', text: '#fed7aa', tag: 'ORANGE' }
+];
+
+function getTrackPalette(trackId: string, isVerified: boolean) {
+  if (isVerified) {
+    return {
+      stroke: '#10b981',
+      glow: 'rgba(16, 185, 129, 0.55)',
+      bg: 'rgba(16, 185, 129, 0.16)',
+      headerBg: '#064e3b',
+      text: '#a7f3d0',
+      tag: 'VERIFIED SISWA'
+    };
+  }
+
+  // Tiap orang asing / track mendapatkan warna sensor unik berbeda berdasarkan hash ID
+  let hash = 0;
+  for (let i = 0; i < trackId.length; i++) {
+    hash = (hash << 5) - hash + trackId.charCodeAt(i);
+    hash |= 0;
+  }
+  const idx = Math.abs(hash) % SENSOR_PALETTES.length;
+  return SENSOR_PALETTES[idx];
+}
+
 export const WalkThroughScanner: React.FC = () => {
   const {
     students,
@@ -310,21 +343,24 @@ export const WalkThroughScanner: React.FC = () => {
               // Abaikan jika track sudah hilang lebih dari 3 frame
               if (track.missingFrames > 3) continue;
 
-              const pxX = (track.box.x / 100) * vw;
+              // Transformasi koordinat sesuai kamera mirror tanpa membuat teks terbalik
+              const normX = cameraFacing === 'user' ? (100 - track.box.x - track.box.w) : track.box.x;
+              const pxX = (normX / 100) * vw;
               const pxY = (track.box.y / 100) * vh;
               const pxW = (track.box.w / 100) * vw;
               const pxH = (track.box.h / 100) * vh;
 
-              // Visual Style: Hijau untuk Siswa Terverifikasi, Kuning/Amber untuk Anonim
               const isVer = track.isVerified;
-              const strokeColor = isVer ? '#10b981' : '#f59e0b';
-              const fillColor = isVer ? 'rgba(16, 185, 129, 0.12)' : 'rgba(245, 158, 11, 0.08)';
+              const palette = getTrackPalette(track.id, isVer);
+
+              ctx.save();
+              ctx.shadowColor = palette.glow;
+              ctx.shadowBlur = 10;
+              ctx.strokeStyle = palette.stroke;
+              ctx.lineWidth = 2.5;
+              ctx.fillStyle = palette.bg;
 
               // Draw rounded bounding box
-              ctx.save();
-              ctx.strokeStyle = strokeColor;
-              ctx.lineWidth = 3;
-              ctx.fillStyle = fillColor;
 
               const r = 8;
               ctx.beginPath();
@@ -343,7 +379,8 @@ export const WalkThroughScanner: React.FC = () => {
 
               // Draw Corner Accents
               const cLen = 14;
-              ctx.lineWidth = 4;
+              ctx.lineWidth = 3.5;
+              ctx.strokeStyle = palette.stroke;
               ctx.beginPath();
               // Top-left
               ctx.moveTo(pxX, pxY + cLen);
@@ -363,35 +400,61 @@ export const WalkThroughScanner: React.FC = () => {
               ctx.lineTo(pxX + pxW, pxY + pxH - cLen);
               ctx.stroke();
 
+              // Center Radar Target Dot
+              const centerX = pxX + pxW / 2;
+              const centerY = pxY + pxH / 2;
+              ctx.beginPath();
+              ctx.arc(centerX, centerY, 3, 0, Math.PI * 2);
+              ctx.fillStyle = palette.stroke;
+              ctx.fill();
+
               // Draw Badge Name Header
               const labelText = isVer
                 ? `${track.studentName || 'Siswa'}`
-                : 'Anonim / Belum Terdaftar';
+                : `[ID-${track.id.slice(-4).toUpperCase()}] Anonim / Belum Terdaftar`;
 
               const subText = isVer
                 ? `${track.studentClass || ''} • ${track.confidence}% Cocok`
-                : 'Akses Tidak Terdaftar (Diabaikan)';
+                : `Sensor AI: ${palette.tag} • Tidak Disimpan`;
 
-              ctx.font = 'bold 14px system-ui, sans-serif';
+              ctx.font = 'bold 13px system-ui, sans-serif';
               const textWidth = Math.max(ctx.measureText(labelText).width, 160);
-              const badgeH = 42;
+              const badgeH = 40;
               const badgeY = Math.max(0, pxY - badgeH - 6);
 
               // Badge background
-              ctx.fillStyle = isVer ? '#065f46' : '#78350f';
+              ctx.fillStyle = palette.headerBg;
               ctx.beginPath();
               ctx.roundRect(pxX, badgeY, textWidth + 24, badgeH, 6);
               ctx.fill();
-              ctx.strokeStyle = strokeColor;
-              ctx.lineWidth = 1;
+              ctx.strokeStyle = palette.stroke;
+              ctx.lineWidth = 1.5;
               ctx.stroke();
 
               // Badge text
               ctx.fillStyle = '#ffffff';
-              ctx.fillText(labelText, pxX + 10, badgeY + 18);
+              ctx.fillText(labelText, pxX + 10, badgeY + 16);
               ctx.font = 'normal 11px system-ui, sans-serif';
-              ctx.fillStyle = isVer ? '#a7f3d0' : '#fde68a';
-              ctx.fillText(subText, pxX + 10, badgeY + 34);
+              ctx.fillStyle = palette.text;
+              ctx.fillText(subText, pxX + 10, badgeY + 32);
+
+              // Draw bottom HUD tracker status
+              const footerH = 20;
+              const footerY = pxY + pxH + 4;
+              ctx.font = 'bold 10px monospace, monospace';
+              const footerText = isVer
+                ? `STATUS: TERVERIFIKASI [1x ABSEN HARI INI]`
+                : `SENSOR TRACK [${track.id.slice(-4).toUpperCase()}] • ${palette.tag}`;
+              const footerWidth = ctx.measureText(footerText).width + 16;
+              ctx.fillStyle = palette.headerBg;
+              ctx.beginPath();
+              ctx.roundRect(pxX, footerY, footerWidth, footerH, 4);
+              ctx.fill();
+              ctx.strokeStyle = palette.stroke;
+              ctx.lineWidth = 1;
+              ctx.stroke();
+              ctx.fillStyle = palette.text;
+              ctx.fillText(footerText, pxX + 8, footerY + 14);
 
               ctx.restore();
 
@@ -555,7 +618,7 @@ export const WalkThroughScanner: React.FC = () => {
                 />
                 <canvas
                   ref={canvasRef}
-                  className={`absolute inset-0 w-full h-full pointer-events-none ${cameraFacing === 'user' ? '-scale-x-100' : ''}`}
+                  className="absolute inset-0 w-full h-full pointer-events-none"
                 />
               </>
             )}
