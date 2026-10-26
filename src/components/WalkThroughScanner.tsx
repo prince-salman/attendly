@@ -1411,16 +1411,30 @@ export const WalkThroughScanner: React.FC = () => {
 
             {/* Non-blocking Pill: Camera feed stays 100% LIVE and NEVER blacks out */}
             {engineMode === 'python' && pythonStatus === 'offline' && !cameraError && (
-              <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 px-3.5 py-1.5 rounded-full bg-slate-900/90 border border-amber-500/40 text-amber-300 text-xs font-mono flex items-center gap-2 shadow-lg backdrop-blur-md">
-                <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-400" />
-                <span>Menghubungkan ke Backend AI... Kamera tetap aktif</span>
+              <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 px-3.5 py-1.5 rounded-full bg-slate-900/90 border border-amber-500/40 text-amber-300 text-xs font-mono flex items-center gap-2.5 shadow-lg backdrop-blur-md">
+                <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-400 shrink-0" />
+                <span>Backend Python Lokal Offline</span>
+                <button
+                  type="button"
+                  onClick={() => setEngineMode('browser')}
+                  className="px-2 py-0.5 rounded-md bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-[11px] cursor-pointer transition-all shadow-xs"
+                >
+                  Gunakan AI Browser (Cloud)
+                </button>
+              </div>
+            )}
+
+            {engineMode === 'browser' && modelsReady && !cameraError && (
+              <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 px-3 py-1 rounded-full bg-emerald-950/80 border border-emerald-500/30 text-emerald-300 text-[11px] font-mono flex items-center gap-2 shadow-lg backdrop-blur-md">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
+                <span>AI Browser Aktif (Tanpa Perlu Python)</span>
               </div>
             )}
 
             {engineMode === 'browser' && !modelsReady && !cameraError && (
               <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 px-3.5 py-1.5 rounded-full bg-slate-900/90 border border-blue-500/40 text-blue-300 text-xs font-mono flex items-center gap-2 shadow-lg backdrop-blur-md">
-                <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                <span>Memuat bobot model deteksi browser...</span>
+                <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin shrink-0" />
+                <span>Memuat AI Face Recognition Browser...</span>
               </div>
             )}
 

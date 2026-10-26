@@ -921,8 +921,9 @@ export const FaceEnrollmentStation: React.FC = () => {
                 Python ArcFace Active ({pythonEnrolledCount} enrolled)
               </span>
             ) : (
-              <span className="text-xs text-amber-700 dark:text-amber-400 font-medium px-2.5 py-1 bg-amber-50 dark:bg-amber-950/60 rounded-lg border border-amber-200 dark:border-amber-800/50">
-                Browser Mode
+              <span className="text-xs text-emerald-700 dark:text-emerald-400 font-medium px-2.5 py-1 bg-emerald-50 dark:bg-emerald-950/60 rounded-lg border border-emerald-200 dark:border-emerald-800/50 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                Cloud Browser Mode (Supabase Cloud Active)
               </span>
             )}
           </div>
