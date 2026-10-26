@@ -1,1 +1,15 @@
-{}
+{
+  "NIS-2024301": {
+    "meta": {
+      "id": "NIS-2024301",
+      "name": "ADRIAN",
+      "nickname": "ADRIAN",
+      "class": "10-IPA-1",
+      "gender": "L",
+      "parentName": "AAA",
+      "parentPhone": "0812-1111",
+      "enrolledAt": "2026-10-26T08:05:49.874352+00:00"
+    },
+    "embeddings": []
+  }
+}

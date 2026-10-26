@@ -5,8 +5,8 @@
 
 import { Student } from '../types';
 
-export const PYTHON_BACKEND_URL = 'http://127.0.0.1:8000';
-export const PYTHON_WS_URL = 'ws://127.0.0.1:8000/ws/detect';
+export const PYTHON_BACKEND_URL = 'http://127.0.0.1:8001';
+export const PYTHON_WS_URL = 'ws://127.0.0.1:8001/ws/detect';
 
 export interface PythonHealthResponse {
   status: string;

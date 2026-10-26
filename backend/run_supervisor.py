@@ -17,11 +17,11 @@ CREATE_NEW_PROCESS_GROUP = 0x00000200 if sys.platform == "win32" else 0
 
 while True:
     try:
-        print("[Attendly Supervisor] Launching Uvicorn on 127.0.0.1:8000...")
+        print("[Attendly Supervisor] Launching Uvicorn on 127.0.0.1:8001...")
         sys.stdout.flush()
         
         proc = subprocess.Popen(
-            [sys.executable, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "8000"],
+            [sys.executable, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "8001"],
             cwd=BACKEND_DIR,
             creationflags=CREATE_NEW_PROCESS_GROUP
         )
