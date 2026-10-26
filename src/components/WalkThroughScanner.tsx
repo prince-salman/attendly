@@ -377,8 +377,15 @@ export const WalkThroughScanner: React.FC = () => {
     };
   }, []);
 
-  // Engine selection: 'python' (InsightFace ArcFace walk-by) vs 'browser' (fallback)
-  const [engineMode, setEngineMode] = useState<'python' | 'browser'>('python');
+  // Engine selection: 'python' (InsightFace ArcFace local kiosk) vs 'browser' (Client-side Neural Network for Netlify/Cloud)
+  const [engineMode, setEngineMode] = useState<'python' | 'browser'>(() => {
+    if (typeof window !== 'undefined') {
+      const isHttps = window.location.protocol === 'https:';
+      const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+      if (isHttps && !isLocal) return 'browser';
+    }
+    return 'python';
+  });
   const [pythonStatus, setPythonStatus] = useState<'connected' | 'connecting' | 'offline'>('connecting');
   const [pythonLatency, setPythonLatency] = useState<number>(0);
   const [pythonEnrolledCount, setPythonEnrolledCount] = useState<number>(0);

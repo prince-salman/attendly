@@ -47,7 +47,8 @@ const MainLayout: React.FC = () => {
     notify,
     theme,
     toggleTheme,
-    activeSchool
+    activeSchool,
+    supabaseConnected
   } = useApp();
 
   const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
@@ -298,6 +299,19 @@ const MainLayout: React.FC = () => {
 
             {/* Right Controls: Theme Switcher, Role, Settings */}
             <div className="flex items-center gap-2">
+              {/* Cloud Database Status Pill */}
+              <div
+                className={`hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-[11px] font-mono transition-all shadow-sm ${
+                  supabaseConnected
+                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                    : 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                }`}
+                title={supabaseConnected ? 'Database Supabase Cloud Terhubung & Aktif' : 'Menghubungkan ke Supabase Cloud...'}
+              >
+                <span className={`w-2 h-2 rounded-full ${supabaseConnected ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)]' : 'bg-amber-400 animate-ping'}`} />
+                <span className="font-semibold">{supabaseConnected ? 'Supabase Cloud: Terhubung' : 'Cloud DB: Menghubungkan...'}</span>
+              </div>
+
               {/* Light / Dark Mode Toggle */}
               <button
                 onClick={toggleTheme}
