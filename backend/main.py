@@ -777,6 +777,9 @@ async def ws_detect(websocket: WebSocket):
         while True:
             # Receive either binary data or text
             message = await websocket.receive()
+            if message.get("type") == "websocket.disconnect":
+                log.info("WebSocket /ws/detect client disconnected gracefully")
+                break
 
             if "bytes" in message and message["bytes"]:
                 raw_bytes = message["bytes"]
@@ -880,7 +883,7 @@ async def ws_detect(websocket: WebSocket):
                 "enrolled_count": len(students),
             })
 
-    except WebSocketDisconnect:
+    except (WebSocketDisconnect, RuntimeError):
         log.info("WebSocket /ws/detect client disconnected")
     except Exception as exc:
         log.exception("WebSocket /ws/detect exception: %s", exc)
