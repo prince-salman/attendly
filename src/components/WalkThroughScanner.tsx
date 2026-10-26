@@ -693,19 +693,29 @@ export const WalkThroughScanner: React.FC = () => {
         }
 
         setCameraError(null);
-        // Standard resolution without restrictive minimums to avoid camera driver reset/flicker
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-            facingMode: cameraFacing
-          },
-          audio: false
-        });
+        // Resilient resolution and facingMode with automatic fallback to any live camera
+        let stream: MediaStream;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+              facingMode: cameraFacing
+            },
+            audio: false
+          });
+        } catch (facingErr) {
+          console.warn('Camera facingMode request failed, falling back to default video device:', facingErr);
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: false
+          });
+        }
 
         if (isMounted) {
           streamRef.current = stream;
           if (videoRef.current) {
+            videoRef.current.muted = true;
             videoRef.current.srcObject = stream;
             videoRef.current.onloadedmetadata = () => {
               videoRef.current?.play().catch(e => console.warn('Play warning:', e));
@@ -730,6 +740,10 @@ export const WalkThroughScanner: React.FC = () => {
 
     return () => {
       isMounted = false;
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(t => t.stop());
+        streamRef.current = null;
+      }
     };
   }, [cameraFacing]);
 

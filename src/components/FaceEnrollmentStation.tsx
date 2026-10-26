@@ -232,23 +232,37 @@ export const FaceEnrollmentStation: React.FC = () => {
         }
 
         setCameraError(null);
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-            facingMode: cameraFacing
-          },
-          audio: false
-        });
+        let stream: MediaStream;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+              facingMode: cameraFacing
+            },
+            audio: false
+          });
+        } catch (facingErr) {
+          console.warn('Camera facingMode request failed, falling back to default video device:', facingErr);
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: false
+          });
+        }
 
         if (isMounted) {
           streamRef.current = stream;
           if (videoRef.current) {
+            videoRef.current.muted = true;
             videoRef.current.srcObject = stream;
             videoRef.current.onloadedmetadata = () => {
-              videoRef.current?.play();
+              videoRef.current?.play().catch(e => console.warn('Play warning:', e));
               setCameraActive(true);
             };
+            if (videoRef.current.readyState >= 1) {
+              videoRef.current.play().catch(e => console.warn('Play warning:', e));
+              setCameraActive(true);
+            }
           }
         }
       } catch (err: any) {
