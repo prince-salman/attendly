@@ -661,15 +661,29 @@ export const WalkThroughScanner: React.FC = () => {
 
     async function startCamera() {
       try {
+        // Reuse existing active stream if healthy
+        if (streamRef.current && streamRef.current.active) {
+          const liveTracks = streamRef.current.getVideoTracks().filter(t => t.readyState === 'live');
+          if (liveTracks.length > 0) {
+            if (videoRef.current && videoRef.current.srcObject !== streamRef.current) {
+              videoRef.current.srcObject = streamRef.current;
+              videoRef.current.play().catch(e => console.warn('Play warning:', e));
+            }
+            setCameraActive(true);
+            return;
+          }
+        }
+
         if (streamRef.current) {
           streamRef.current.getTracks().forEach(t => t.stop());
         }
 
         setCameraError(null);
+        // Standard resolution without restrictive minimums to avoid camera driver reset/flicker
         const stream = await navigator.mediaDevices.getUserMedia({
           video: {
-            width: { ideal: 1920, min: 1280 },
-            height: { ideal: 1080, min: 720 },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
             facingMode: cameraFacing
           },
           audio: false
@@ -702,9 +716,6 @@ export const WalkThroughScanner: React.FC = () => {
 
     return () => {
       isMounted = false;
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(t => t.stop());
-      }
     };
   }, [cameraFacing]);
 
@@ -719,16 +730,6 @@ export const WalkThroughScanner: React.FC = () => {
     studentsRef.current = students;
   }, [students]);
 
-  // Ensure stream stays attached to videoRef
-  useEffect(() => {
-    if (videoRef.current && streamRef.current && (!videoRef.current.srcObject || !cameraActive)) {
-      videoRef.current.srcObject = streamRef.current;
-      videoRef.current.play().then(() => {
-        setCameraActive(true);
-      }).catch(e => console.warn('Video attach warning:', e));
-    }
-  }, [cameraActive]);
-
   // ──────────────────────────────────────────────────────────────────
   // PIPELINE 1: PYTHON WEBSOCKET STREAMING (Passive Walk-By Mode)
   // ──────────────────────────────────────────────────────────────────
@@ -738,6 +739,17 @@ export const WalkThroughScanner: React.FC = () => {
     let isSubscribed = true;
     let ws: WebSocket | null = null;
     let frameInterval: any = null;
+    let reconnectTimer: any = null;
+
+    function scheduleReconnect() {
+      if (!isSubscribed) return;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      reconnectTimer = setTimeout(() => {
+        if (isSubscribed && cameraActive && engineMode === 'python') {
+          connectWs();
+        }
+      }, 2000);
+    }
 
     function connectWs() {
       try {
@@ -844,15 +856,19 @@ export const WalkThroughScanner: React.FC = () => {
           if (!isSubscribed) return;
           setPythonStatus('offline');
           wsRef.current = null;
+          isSendingFrameRef.current = false;
+          scheduleReconnect();
         };
 
         ws.onerror = () => {
           if (!isSubscribed) return;
           setPythonStatus('offline');
+          scheduleReconnect();
         };
       } catch (err) {
         console.warn('WS connection setup error:', err);
         setPythonStatus('offline');
+        scheduleReconnect();
       }
     }
 
@@ -914,6 +930,7 @@ export const WalkThroughScanner: React.FC = () => {
 
     return () => {
       isSubscribed = false;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
       if (frameInterval) clearInterval(frameInterval);
       if (ws) {
         ws.close();
@@ -1383,28 +1400,22 @@ export const WalkThroughScanner: React.FC = () => {
                 <h3 className="font-semibold text-sm text-white mb-1">Camera Stream Inactive</h3>
                 <p className="text-xs text-slate-400 max-w-sm font-mono">{cameraError}</p>
               </div>
-            ) : engineMode === 'python' && pythonStatus === 'offline' ? (
-              <div className="absolute inset-0 z-30 flex flex-col items-center justify-center p-8 text-center bg-slate-950/85 backdrop-blur-sm text-slate-300">
-                <RefreshCw className="w-8 h-8 text-amber-400 animate-spin mb-3" />
-                <h3 className="font-semibold text-sm text-white mb-1">Connecting to Python Recognition Backend...</h3>
-                <p className="text-xs text-slate-400 max-w-md font-mono mb-4">
-                  Connecting to ws://127.0.0.1:8000/ws/detect for passive walk-by recognition.
-                </p>
-                <button
-                  onClick={() => setEngineMode('browser')}
-                  className="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-mono border border-slate-700 cursor-pointer"
-                >
-                  Switch to Browser Engine Fallback
-                </button>
-              </div>
-            ) : engineMode === 'browser' && !modelsReady ? (
-              <div className="absolute inset-0 z-30 flex flex-col items-center justify-center p-8 text-center bg-slate-950/90 backdrop-blur-sm text-slate-300">
-                <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin mb-3" />
-                <p className="text-xs text-slate-400">
-                  Loading detection models...
-                </p>
-              </div>
             ) : null}
+
+            {/* Non-blocking Pill: Camera feed stays 100% LIVE and NEVER blacks out */}
+            {engineMode === 'python' && pythonStatus === 'offline' && !cameraError && (
+              <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 px-3.5 py-1.5 rounded-full bg-slate-900/90 border border-amber-500/40 text-amber-300 text-xs font-mono flex items-center gap-2 shadow-lg backdrop-blur-md">
+                <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                <span>Menghubungkan ke Backend AI... Kamera tetap aktif</span>
+              </div>
+            )}
+
+            {engineMode === 'browser' && !modelsReady && !cameraError && (
+              <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 px-3.5 py-1.5 rounded-full bg-slate-900/90 border border-blue-500/40 text-blue-300 text-xs font-mono flex items-center gap-2 shadow-lg backdrop-blur-md">
+                <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                <span>Memuat bobot model deteksi browser...</span>
+              </div>
+            )}
 
             {/* Top-Right Action Controls */}
             <div className="absolute top-4 right-4 z-40 flex items-center gap-1.5 pointer-events-auto">
