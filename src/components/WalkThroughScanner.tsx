@@ -124,7 +124,8 @@ function drawOmniAngleFaceScan(
   _confidence: string,
   _pose?: any,
   _landmarks?: any,
-  _coverage?: any
+  _coverage?: any,
+  isEmptyState = false
 ) {
   const normX = cameraFacing === 'user' ? (100 - box.x - box.w) : box.x;
   const pxX = (normX / 100) * vw;
@@ -138,7 +139,11 @@ function drawOmniAngleFaceScan(
   const cornerLen = Math.min(22, pxW * 0.22, pxH * 0.22);
   const cornerRadius = 6;
   ctx.lineWidth = isVer ? 2.5 : 2;
-  ctx.strokeStyle = isVer ? '#10b981' : 'rgba(255, 255, 255, 0.7)';
+  ctx.strokeStyle = isVer
+    ? '#10b981'
+    : isEmptyState
+    ? 'rgba(56, 189, 248, 0.85)'
+    : 'rgba(255, 255, 255, 0.7)';
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
@@ -223,8 +228,10 @@ function drawOmniAngleFaceScan(
     ctx.fillStyle = '#94a3b8';
     ctx.fillText(subText, badgeX + 10, badgeY + 29);
   } else {
-    // Unverified scanning pill
-    const scanText = `Memindai Wajah (${distanceTag})...`;
+    // Unverified scanning pill (Clean and serene, especially when database is empty)
+    const scanText = isEmptyState
+      ? `Wajah Terdeteksi • Belum Ada Siswa`
+      : `Memindai Wajah (${distanceTag})...`;
     ctx.font = '500 11px "Plus Jakarta Sans", sans-serif';
     const textW = ctx.measureText(scanText).width;
     const badgeW = textW + 28;
@@ -232,16 +239,16 @@ function drawOmniAngleFaceScan(
     const badgeX = pxX + (pxW - badgeW) / 2;
     const badgeY = Math.max(10, pxY - badgeH - 8);
 
-    ctx.fillStyle = 'rgba(11, 15, 25, 0.85)';
+    ctx.fillStyle = 'rgba(11, 15, 25, 0.88)';
     ctx.beginPath();
     drawRoundedRect(ctx, badgeX, badgeY, badgeW, badgeH, 12);
     ctx.fill();
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+    ctx.strokeStyle = isEmptyState ? 'rgba(56, 189, 248, 0.3)' : 'rgba(255, 255, 255, 0.12)';
     ctx.lineWidth = 1;
     ctx.stroke();
 
-    // Small pulsing green dot
-    ctx.fillStyle = '#10b981';
+    // Calm dot (cyan if empty database, green if matching)
+    ctx.fillStyle = isEmptyState ? '#38bdf8' : '#10b981';
     ctx.beginPath();
     ctx.arc(badgeX + 10, badgeY + 12, 3, 0, Math.PI * 2);
     ctx.fill();
@@ -737,6 +744,11 @@ export const WalkThroughScanner: React.FC = () => {
     studentsRef.current = students;
   }, [students]);
 
+  // Throttling refs to prevent 60fps re-render overhead and jitter
+  const lastStatsUpdateRef = useRef<number>(0);
+  const lastTracksUpdateRef = useRef<number>(0);
+  const prevFacesCountRef = useRef<number>(-1);
+
   // ──────────────────────────────────────────────────────────────────
   // PIPELINE 1: PYTHON WEBSOCKET STREAMING (Passive Walk-By Mode)
   // ──────────────────────────────────────────────────────────────────
@@ -774,10 +786,16 @@ export const WalkThroughScanner: React.FC = () => {
           if (!isSubscribed) return;
           try {
             const data: PythonDetectionMessage = JSON.parse(event.data);
-            setFps(data.fps || 24);
-            setPythonLatency(data.proc_ms || 0);
-            if (typeof data.enrolled_count === 'number') {
-              setPythonEnrolledCount(data.enrolled_count);
+            const nowTime = performance.now();
+
+            // Smoothly throttle FPS / latency state updates to 1x per second
+            if (nowTime - lastStatsUpdateRef.current >= 1000) {
+              lastStatsUpdateRef.current = nowTime;
+              setFps(data.fps || 24);
+              setPythonLatency(data.proc_ms || 0);
+              if (typeof data.enrolled_count === 'number') {
+                setPythonEnrolledCount(data.enrolled_count);
+              }
             }
 
             const video = videoRef.current;
@@ -787,10 +805,8 @@ export const WalkThroughScanner: React.FC = () => {
             const vw = video.videoWidth || 640;
             const vh = video.videoHeight || 480;
 
-            if (canvas.width !== vw || canvas.height !== vh) {
-              canvas.width = vw;
-              canvas.height = vh;
-            }
+            if (canvas.width !== vw) canvas.width = vw;
+            if (canvas.height !== vh) canvas.height = vh;
 
             const ctx = canvas.getContext('2d');
             if (!ctx) return;
@@ -813,10 +829,24 @@ export const WalkThroughScanner: React.FC = () => {
               missingFrames: 0
             }));
 
-            setActiveTracksList(tracks);
+            // Throttle tracks React state update to avoid re-rendering entire scanner every frame
+            const facesList = data.faces || [];
+            const hasVerified = facesList.some(f => f.matched);
+            const facesCount = facesList.length;
+            if (
+              facesCount !== prevFacesCountRef.current ||
+              hasVerified ||
+              nowTime - lastTracksUpdateRef.current >= 600
+            ) {
+              prevFacesCountRef.current = facesCount;
+              lastTracksUpdateRef.current = nowTime;
+              setActiveTracksList(tracks);
+            }
+
+            const isEmpty = (studentsRef.current?.length || 0) === 0;
 
             // Draw Omni-Angle Full-Face Scanning Visualizations (Seluruh Bagian Wajah: Samping, Atas, Bawah)
-            for (const face of data.faces || []) {
+            for (const face of facesList) {
               const isVer = face.matched;
               const callName = face.studentNickname || getStudentCallName(face.studentName || 'Student');
 
@@ -832,7 +862,8 @@ export const WalkThroughScanner: React.FC = () => {
                 face.confidence,
                 face.pose,
                 face.landmarks,
-                face.coverage
+                face.coverage,
+                isEmpty
               );
 
               // Trigger attendance when verified
@@ -1490,9 +1521,11 @@ export const WalkThroughScanner: React.FC = () => {
           <div className="absolute top-4 left-4 z-20 flex flex-col gap-2 max-w-[270px] sm:max-w-[300px] pointer-events-auto select-none">
             {/* FPS & Scanner Status Pill */}
             <div className="flex items-center gap-2.5 bg-slate-950/80 backdrop-blur-md px-3 py-1.5 rounded-xl border border-white/10 text-white text-xs shadow-lg w-fit">
-              <span className={`w-2 h-2 rounded-full ${verifiedTracksCount > 0 ? 'bg-emerald-400' : 'bg-emerald-500'} animate-pulse`} />
+              <span className={`w-2 h-2 rounded-full ${students.length === 0 ? 'bg-sky-400' : verifiedTracksCount > 0 ? 'bg-emerald-400' : 'bg-emerald-500'} animate-pulse`} />
               <span className="text-xs font-semibold text-slate-200">
-                {verifiedTracksCount > 0
+                {students.length === 0
+                  ? 'Belum Ada Siswa Terdaftar'
+                  : verifiedTracksCount > 0
                   ? `${verifiedTracksCount} Terverifikasi`
                   : activeTracksList.length > 0
                   ? 'Memindai...'

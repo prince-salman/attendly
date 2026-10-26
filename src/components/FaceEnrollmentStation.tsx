@@ -1367,36 +1367,51 @@ export const FaceEnrollmentStation: React.FC = () => {
               </div>
             ) : (
               <div className="mt-5 p-4 bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-white/10 rounded-xl space-y-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Select Student to Re-Enroll
-                  </label>
-                  <select
-                    value={selectedStudentId}
-                    onChange={e => setSelectedStudentId(e.target.value)}
-                    className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl text-xs font-medium text-slate-800 dark:text-slate-200"
-                  >
-                    {students.map(s => (
-                      <option key={s.id} value={s.id}>
-                        {s.name} ({s.id} - {s.class})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {currentStudent && (
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                      Gate Audio Call Name
-                    </label>
-                    <input
-                      type="text"
-                      value={existingNickname}
-                      onChange={e => setExistingNickname(e.target.value)}
-                      placeholder={getStudentCallName(currentStudent.name)}
-                      className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl text-xs font-medium text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                    />
+                {students.length === 0 ? (
+                  <div className="text-center py-4">
+                    <p className="text-xs font-semibold text-slate-400">Belum ada siswa terdaftar di database.</p>
+                    <button
+                      type="button"
+                      onClick={() => setMode('new')}
+                      className="mt-2 text-xs font-bold text-emerald-500 hover:text-emerald-400 cursor-pointer underline"
+                    >
+                      Beralih ke Formulir Siswa Baru →
+                    </button>
                   </div>
+                ) : (
+                  <>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                        Select Student to Re-Enroll
+                      </label>
+                      <select
+                        value={selectedStudentId}
+                        onChange={e => setSelectedStudentId(e.target.value)}
+                        className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl text-xs font-medium text-slate-800 dark:text-slate-200"
+                      >
+                        {students.map(s => (
+                          <option key={s.id} value={s.id}>
+                            {s.name} ({s.id} - {s.class})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {currentStudent && (
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                          Gate Audio Call Name
+                        </label>
+                        <input
+                          type="text"
+                          value={existingNickname}
+                          onChange={e => setExistingNickname(e.target.value)}
+                          placeholder={currentStudent.name ? getStudentCallName(currentStudent.name) : 'Nama Panggilan'}
+                          className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl text-xs font-medium text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                        />
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             )}

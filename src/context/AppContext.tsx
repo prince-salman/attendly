@@ -131,21 +131,26 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // Persistent Storage State - Respects Permanent Deletions
   const [students, setStudents] = useState<Student[]>(() => {
     try {
+      const clearedStatus = localStorage.getItem('attendly_all_students_cleared');
       // If user explicitly purged all students, respect it!
-      if (localStorage.getItem('attendly_all_students_cleared') === 'true') {
+      if (clearedStatus === 'true' || clearedStatus === 'synced') {
         return [];
       }
-      const deletedIds = new Set<string>(
-        JSON.parse(localStorage.getItem('biopass_deleted_student_ids') || '[]')
-      );
       const saved = localStorage.getItem('biopass_students');
       if (saved !== null) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) {
+          if (parsed.length === 0) return [];
+          const deletedIds = new Set<string>(
+            JSON.parse(localStorage.getItem('biopass_deleted_student_ids') || '[]')
+          );
           return parsed.filter((s: Student) => !deletedIds.has(s.id));
         }
       }
       // First boot default
+      const deletedIds = new Set<string>(
+        JSON.parse(localStorage.getItem('biopass_deleted_student_ids') || '[]')
+      );
       const initial = INITIAL_STUDENTS.filter(s => !deletedIds.has(s.id));
       localStorage.setItem('biopass_students', JSON.stringify(initial));
       return initial;
@@ -707,13 +712,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setSupabaseConnected(isOnline);
 
       if (isOnline) {
-        // If user explicitly purged all students, respect and sync to cloud
-        const isPurged = localStorage.getItem('attendly_all_students_cleared') === 'true';
-        if (isPurged) {
-          await clearAllStudentsFromSupabase();
-        } else {
+        // If user explicitly purged all students, respect and sync to cloud once
+        const clearedStatus = localStorage.getItem('attendly_all_students_cleared');
+        if (clearedStatus === 'true') {
+          localStorage.setItem('attendly_all_students_cleared', 'synced');
+          await clearAllStudentsFromSupabase().catch(() => {});
+        } else if (clearedStatus !== 'synced') {
           // Fetch cloud students and filter out any permanently deleted IDs
-          const cloudStudents = await fetchStudentsFromSupabase();
+          const cloudStudents = await fetchStudentsFromSupabase().catch(() => []);
           if (isMounted) {
             const deletedIds = new Set(
               JSON.parse(localStorage.getItem('biopass_deleted_student_ids') || '[]')
@@ -727,11 +733,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         }
 
         // Attendance logs sync
-        const isAttPurged = localStorage.getItem('attendly_attendance_cleared') === 'true';
-        if (isAttPurged) {
-          await clearAllAttendanceLogsFromSupabase();
-        } else {
-          const cloudLogs = await fetchAttendanceLogsFromSupabase(100);
+        const isAttPurged = localStorage.getItem('attendly_attendance_cleared');
+        if (isAttPurged === 'true') {
+          localStorage.setItem('attendly_attendance_cleared', 'synced');
+          await clearAllAttendanceLogsFromSupabase().catch(() => {});
+        } else if (isAttPurged !== 'synced') {
+          const cloudLogs = await fetchAttendanceLogsFromSupabase(100).catch(() => []);
           if (isMounted && cloudLogs.length > 0) {
             setAttendanceLogs(cloudLogs);
             localStorage.setItem('biopass_attendance', JSON.stringify(cloudLogs));
@@ -745,11 +752,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     // Python ArcFace Initial Sync on Mount
     async function syncPythonEngine() {
       try {
-        const isPurged = localStorage.getItem('attendly_all_students_cleared') === 'true';
-        if (isPurged) {
-          await clearAllStudentsInPython();
-        } else {
-          const pyStudents = await fetchStudentsFromPython();
+        const clearedStatus = localStorage.getItem('attendly_all_students_cleared');
+        if (clearedStatus === 'true') {
+          localStorage.setItem('attendly_all_students_cleared', 'synced');
+          await clearAllStudentsInPython().catch(() => {});
+        } else if (clearedStatus !== 'synced') {
+          const pyStudents = await fetchStudentsFromPython().catch(() => []);
           if (isMounted && pyStudents.length > 0) {
             const deletedIds = new Set(
               JSON.parse(localStorage.getItem('biopass_deleted_student_ids') || '[]')
@@ -866,7 +874,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     try {
       const allIds = students.map(s => s.id);
       localStorage.setItem('biopass_deleted_student_ids', JSON.stringify(allIds));
-      localStorage.setItem('attendly_all_students_cleared', 'true');
+      localStorage.setItem('attendly_all_students_cleared', 'synced');
       localStorage.setItem('biopass_students', '[]');
     } catch (e) {}
 
@@ -1395,9 +1403,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       localStorage.setItem('biopass_students', '[]');
       localStorage.setItem('biopass_attendance', '[]');
       localStorage.setItem('biopass_whatsapp', '[]');
-      localStorage.setItem('attendly_all_students_cleared', 'true');
-      localStorage.setItem('attendly_attendance_cleared', 'true');
-      localStorage.setItem('attendly_whatsapp_cleared', 'true');
+      localStorage.setItem('attendly_all_students_cleared', 'synced');
+      localStorage.setItem('attendly_attendance_cleared', 'synced');
+      localStorage.setItem('attendly_whatsapp_cleared', 'synced');
     } catch (e) {}
 
     clearAllStudentsInPython().catch(() => {});

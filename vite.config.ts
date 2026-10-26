@@ -11,6 +11,9 @@ export default defineConfig({
   server: {
     port: 3000,
     host: true,
+    watch: {
+      ignored: ['**/backend/**', '**/models/**', '**/.git/**'],
+    },
   },
   preview: {
     port: 3000,
