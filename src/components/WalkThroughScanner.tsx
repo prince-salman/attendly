@@ -708,6 +708,17 @@ export const WalkThroughScanner: React.FC = () => {
     };
   }, [cameraFacing]);
 
+  // Refs to prevent unnecessary effect tear-downs and WebSocket reconnect spam
+  const handleStudentVerifiedRef = useRef(handleStudentVerified);
+  useEffect(() => {
+    handleStudentVerifiedRef.current = handleStudentVerified;
+  }, [handleStudentVerified]);
+
+  const studentsRef = useRef(students);
+  useEffect(() => {
+    studentsRef.current = students;
+  }, [students]);
+
   // Ensure stream stays attached to videoRef
   useEffect(() => {
     if (videoRef.current && streamRef.current && (!videoRef.current.srcObject || !cameraActive)) {
@@ -716,7 +727,7 @@ export const WalkThroughScanner: React.FC = () => {
         setCameraActive(true);
       }).catch(e => console.warn('Video attach warning:', e));
     }
-  });
+  }, [cameraActive]);
 
   // ──────────────────────────────────────────────────────────────────
   // PIPELINE 1: PYTHON WEBSOCKET STREAMING (Passive Walk-By Mode)
@@ -807,7 +818,8 @@ export const WalkThroughScanner: React.FC = () => {
 
               // Trigger attendance when verified
               if (isVer && face.studentId) {
-                const studentObj = students.find(s => s.id === face.studentId) || {
+                const currentStudents = studentsRef.current;
+                const studentObj = currentStudents.find(s => s.id === face.studentId) || {
                   id: face.studentId,
                   name: face.studentName || 'Student',
                   nickname: face.studentNickname || callName,
@@ -818,7 +830,7 @@ export const WalkThroughScanner: React.FC = () => {
                   enrolledAt: new Date().toLocaleTimeString(),
                   consentCertified: true
                 };
-                handleStudentVerified(studentObj, `${face.studentId}-${Math.floor(Date.now() / 15000)}`);
+                handleStudentVerifiedRef.current(studentObj, `${face.studentId}-${Math.floor(Date.now() / 15000)}`);
               }
             }
           } catch (e) {
@@ -909,7 +921,7 @@ export const WalkThroughScanner: React.FC = () => {
       wsRef.current = null;
       isSendingFrameRef.current = false;
     };
-  }, [engineMode, cameraActive, sensorRangeMode, cameraFacing, students, handleStudentVerified]);
+  }, [engineMode, cameraActive, sensorRangeMode, cameraFacing]);
 
   // ──────────────────────────────────────────────────────────────────
   // PIPELINE 2: BROWSER FALLBACK LOOP (Runs only if engineMode === 'browser')
