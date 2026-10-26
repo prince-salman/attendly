@@ -6,6 +6,7 @@
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { Student, AttendanceLog } from '../types';
+import { getStudentCallName } from './nameHelper';
 
 export const DEFAULT_SUPABASE_URL = 'https://fruurxbfolykyylzktns.supabase.co';
 export const DEFAULT_SUPABASE_KEY = 'sb_publishable_Fl4iW8EVOWjzyhjhXcKZxA_Nm1gJFcS';
@@ -57,37 +58,42 @@ export function formatAttendanceTime(d = new Date()): string {
 export function evaluateAttendancePunctuality(
   d = new Date(),
   cutoffTime = '07:00'
-): 'Hadir Tepat Waktu' | 'Terlambat' {
+): 'On Time' | 'Late' {
   const [cutoffHour, cutoffMinute] = cutoffTime.split(':').map(Number);
   const currentHour = d.getHours();
   const currentMinute = d.getMinutes();
 
-  if (currentHour < cutoffHour) return 'Hadir Tepat Waktu';
-  if (currentHour === cutoffHour && currentMinute <= cutoffMinute) return 'Hadir Tepat Waktu';
-  return 'Terlambat';
+  if (currentHour < cutoffHour) return 'On Time';
+  if (currentHour === cutoffHour && currentMinute <= cutoffMinute) return 'On Time';
+  return 'Late';
 }
 
 /**
- * Cek apakah siswa sudah absen masuk pada tanggal tersebut (Proteksi 1x per hari)
+ * Cek apakah siswa sudah absen (Datang atau Pulang) pada tanggal tersebut
+ * Proteksi anti-duplikasi: Siswa hanya dapat absen 1x Datang dan 1x Pulang per hari
  */
 export function isAlreadyAttendedToday(
   studentId: string,
   dateString: string,
-  existingLogs: AttendanceLog[]
+  existingLogs: AttendanceLog[],
+  attendanceType: 'DATANG' | 'PULANG' = 'DATANG'
 ): boolean {
   if (!studentId || !dateString || !Array.isArray(existingLogs)) return false;
 
   return existingLogs.some(log => {
-    // Cocokkan studentId dan dateString
+    // Cocokkan studentId
     if (log.studentId !== studentId) return false;
 
-    // Periksa dateString eksplisit atau tanggal di dalam timestamp
-    if (log.dateString && log.dateString === dateString) return true;
+    // Periksa tanggal
+    const isSameDate =
+      (log.dateString && log.dateString === dateString) ||
+      (log.timestamp && log.timestamp.includes(dateString));
+    if (!isSameDate) return false;
 
-    // Fallback jika log lama hanya memiliki timestamp string
-    if (log.timestamp && log.timestamp.includes(dateString)) return true;
-
-    return false;
+    // Periksa tipe presensi ('DATANG' atau 'PULANG')
+    // Log lama yang tidak memiliki attendanceType dianggap 'DATANG'
+    const logType = log.attendanceType || 'DATANG';
+    return logType === attendanceType;
   });
 }
 
@@ -133,6 +139,7 @@ export async function fetchStudentsFromSupabase(): Promise<Student[]> {
     return data.map(row => ({
       id: row.id,
       name: row.name,
+      nickname: row.nickname || getStudentCallName(row.name),
       class: row.class,
       gender: row.gender || 'L',
       parentName: row.parent_name || '',
@@ -199,6 +206,46 @@ export async function deleteStudentFromSupabase(studentId: string): Promise<bool
     return true;
   } catch (err) {
     console.warn('Exception deleting student from Supabase:', err);
+    return false;
+  }
+}
+
+/**
+ * Hapus seluruh data siswa dari Supabase
+ */
+export async function clearAllStudentsFromSupabase(): Promise<boolean> {
+  const client = getSupabaseClient();
+  if (!client) return false;
+
+  try {
+    const { error } = await client.from('students').delete().neq('id', '___NONE___');
+    if (error) {
+      console.warn('Failed to clear students from Supabase:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn('Exception clearing students from Supabase:', err);
+    return false;
+  }
+}
+
+/**
+ * Hapus seluruh log kehadiran dari Supabase
+ */
+export async function clearAllAttendanceLogsFromSupabase(): Promise<boolean> {
+  const client = getSupabaseClient();
+  if (!client) return false;
+
+  try {
+    const { error } = await client.from('attendance_logs').delete().neq('student_id', '___NONE___');
+    if (error) {
+      console.warn('Failed to clear attendance logs from Supabase:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn('Exception clearing attendance logs from Supabase:', err);
     return false;
   }
 }

@@ -1,12 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import {
-  MessageSquare,
   Send,
   CheckCheck,
   Search,
   Phone,
-  BellRing
+  Radio,
+  Inbox,
+  RefreshCw,
+  AlertTriangle,
+  CheckCircle2,
+  AlertCircle
 } from 'lucide-react';
 import { WhatsAppLog } from '../types';
 
@@ -15,23 +19,36 @@ export const WhatsAppHubView: React.FC = () => {
     whatsappLogs,
     students,
     dispatchParentWhatsApp,
+    resendWhatsAppNotification,
     waAutoSendEnabled,
     setWaAutoSendEnabled,
-    notify
+    notify,
+    currentRole,
+    userAssignedClass
   } = useApp();
 
+  const [resendingId, setResendingId] = useState<string | null>(null);
+
+  const scopedStudents = currentRole === 'wali_kelas' && userAssignedClass
+    ? students.filter(s => s.class === userAssignedClass)
+    : students;
+
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedStudentForTestId, setSelectedStudentForTestId] = useState(students[0]?.id || '');
+  const [selectedStudentForTestId, setSelectedStudentForTestId] = useState(scopedStudents[0]?.id || '');
 
   useEffect(() => {
-    if (students.length > 0 && !selectedStudentForTestId) {
-      setSelectedStudentForTestId(students[0].id);
+    if (scopedStudents.length > 0 && !selectedStudentForTestId) {
+      setSelectedStudentForTestId(scopedStudents[0].id);
     }
-  }, [students, selectedStudentForTestId]);
+  }, [scopedStudents, selectedStudentForTestId]);
 
-  const selectedStudentForTest = students.find(s => s.id === selectedStudentForTestId) || students[0];
+  const selectedStudentForTest = scopedStudents.find(s => s.id === selectedStudentForTestId) || scopedStudents[0];
 
   const filteredLogs = whatsappLogs.filter((log: WhatsAppLog) => {
+    if (currentRole === 'wali_kelas' && userAssignedClass) {
+      const st = students.find(s => s.id === log.studentId);
+      if (st && st.class !== userAssignedClass) return false;
+    }
     return (
       log.studentName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       log.parentName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -41,43 +58,47 @@ export const WhatsAppHubView: React.FC = () => {
 
   const handleManualTestSend = () => {
     if (!selectedStudentForTest) {
-      notify('Belum ada siswa terdaftar untuk pengujian WhatsApp.', 'warning');
+      notify('No students enrolled yet for dispatch testing.', 'warning');
       return;
     }
-    const nowTime = new Date().toLocaleTimeString('id-ID') + ' WIB';
+    const nowTime = new Date().toLocaleTimeString('en-US');
     dispatchParentWhatsApp(
       selectedStudentForTest,
       nowTime,
-      'Uji Coba Sistem (Trigger Admin)',
+      'System Test (Admin Trigger)',
       false
     );
-    notify(`📱 Pesan WhatsApp uji coba berhasil dikirim ke ${selectedStudentForTest.parentName} (${selectedStudentForTest.parentPhone})!`);
+    notify(`WhatsApp notification dispatched to ${selectedStudentForTest.parentName} (${selectedStudentForTest.parentPhone}).`);
   };
+
+  const lateAlertCount = whatsappLogs.filter(
+    (l: WhatsAppLog) => l.messageType.toLowerCase().includes('late') || l.messageType.toLowerCase().includes('terlambat')
+  ).length;
 
   return (
     <div className="space-y-6">
       {/* Header Info */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-700">
-            <MessageSquare className="w-6 h-6" />
-          </div>
-          <div>
-            <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-              Pusat Notifikasi WhatsApp Otomatis ke Orang Tua
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200/80 dark:border-white/10 pb-5">
+        <div>
+          <div className="flex items-center gap-2.5">
+            <h2 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">
+              Automated Parent WhatsApp Hub
             </h2>
-            <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-              Mengirimkan bukti kehadiran real-time ke nomor HP orang tua begitu anak melintas di gerbang masuk sekolah.
-            </p>
+            <span className="font-mono text-[11px] text-slate-600 dark:text-slate-300 font-semibold px-2 py-0.5 bg-slate-100 dark:bg-slate-800/90 rounded-md border border-slate-200 dark:border-white/10">
+              WEBHOOK ACTIVE
+            </span>
           </div>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+            Real-time biometric attendance notifications dispatched directly to parents as soon as students enter the gate terminal.
+          </p>
         </div>
 
         {/* Gateway API Status & Toggle */}
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 bg-slate-50 px-3.5 py-1.5 rounded-xl border border-slate-200 text-xs font-medium text-slate-700">
+        <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2 bg-white dark:bg-slate-900/90 px-3 py-1.5 rounded-xl border border-slate-200/90 dark:border-white/10 text-xs font-mono text-slate-700 dark:text-slate-300 shadow-2xs">
             <span className="w-2 h-2 rounded-full bg-emerald-500" />
-            <span>Gateway WhatsApp:</span>
-            <span className="text-emerald-700 font-bold">Online (Official API)</span>
+            <span className="text-slate-500 dark:text-slate-400">GATEWAY:</span>
+            <span className="text-slate-900 dark:text-white font-bold">ONLINE</span>
           </div>
 
           <button
@@ -85,69 +106,89 @@ export const WhatsAppHubView: React.FC = () => {
               setWaAutoSendEnabled(!waAutoSendEnabled);
               notify(
                 waAutoSendEnabled
-                  ? 'Pengiriman otomatis WhatsApp dinonaktifkan.'
-                  : 'Pengiriman otomatis WhatsApp diaktifkan!'
+                  ? 'Automatic WhatsApp dispatch paused.'
+                  : 'Automatic WhatsApp dispatch enabled.'
               );
             }}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-mono font-medium transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs active:scale-98 ${
               waAutoSendEnabled
-                ? 'bg-emerald-600 text-white shadow-xs'
-                : 'bg-slate-100 text-slate-600 border border-slate-300'
+                ? 'bg-slate-900 dark:bg-emerald-500 text-white dark:text-slate-950 font-bold'
+                : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200/90 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-slate-800'
             }`}
           >
-            <BellRing className="w-3.5 h-3.5" />
-            {waAutoSendEnabled ? 'Auto-Kirim: AKTIF' : 'Auto-Kirim: NONAKTIF'}
+            <Radio className={`w-3.5 h-3.5 ${waAutoSendEnabled ? 'text-emerald-400 dark:text-slate-950' : 'text-slate-400'}`} />
+            <span>{waAutoSendEnabled ? 'DISPATCH: ACTIVE' : 'DISPATCH: PAUSED'}</span>
           </button>
         </div>
       </div>
 
-      {/* KPI Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-1 shadow-xs">
-          <div className="text-xs text-slate-500 font-medium">Total Pesan WA Hari Ini</div>
-          <div className="text-2xl font-bold text-slate-900 font-mono">{whatsappLogs.length}</div>
-          <div className="text-[11px] text-emerald-700 font-semibold flex items-center gap-1">
-            <CheckCheck className="w-3.5 h-3.5" /> 100% Berhasil Terkirim
+      {/* Monolithic KPI Deck */}
+      <div className="bg-white dark:bg-slate-900/80 border border-slate-200/80 dark:border-white/10 rounded-2xl shadow-2xs dark:shadow-xl grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 divide-y sm:divide-y-0 sm:divide-x divide-slate-100 dark:divide-white/5 overflow-hidden backdrop-blur-xl">
+        <div className="p-5 flex flex-col justify-between">
+          <div className="text-[10px] font-mono uppercase tracking-widest text-slate-500 dark:text-slate-400 font-semibold">
+            TODAY DISPATCHES
+          </div>
+          <div className="text-3xl font-light tracking-tight font-mono text-slate-900 dark:text-white mt-2">
+            {whatsappLogs.length}
+          </div>
+          <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-mono mt-1 flex items-center gap-1">
+            <CheckCheck className="w-3.5 h-3.5" /> 100% DELIVERED
           </div>
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-1 shadow-xs">
-          <div className="text-xs text-slate-500 font-medium">Kecepatan Pengiriman</div>
-          <div className="text-2xl font-bold text-emerald-700 font-mono">&lt; 1.2s</div>
-          <div className="text-[11px] text-slate-500">Seketika setelah deteksi wajah</div>
-        </div>
-
-        <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-1 shadow-xs">
-          <div className="text-xs text-slate-500 font-medium">Pemberitahuan Terlambat</div>
-          <div className="text-2xl font-bold text-amber-700 font-mono">
-            {whatsappLogs.filter((l: WhatsAppLog) => l.messageType === 'Terlambat').length}
+        <div className="p-5 flex flex-col justify-between">
+          <div className="text-[10px] font-mono uppercase tracking-widest text-slate-500 dark:text-slate-400 font-semibold">
+            DISPATCH LATENCY
           </div>
-          <div className="text-[11px] text-amber-700/80">Laporan khusus ke orang tua</div>
+          <div className="text-3xl font-light tracking-tight font-mono text-slate-900 dark:text-white mt-2">
+            &lt; 1.2s
+          </div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+            Immediate edge trigger
+          </div>
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-1 shadow-xs">
-          <div className="text-xs text-slate-500 font-medium">Jaminan Privasi Pesan</div>
-          <div className="text-sm font-bold text-slate-900 pt-1">UU PDP Verified</div>
-          <div className="text-[11px] text-slate-500">Tanpa lampiran foto wajah</div>
+        <div className="p-5 flex flex-col justify-between">
+          <div className="text-[10px] font-mono uppercase tracking-widest text-slate-500 dark:text-slate-400 font-semibold">
+            LATE ARRIVAL NOTICES
+          </div>
+          <div className="text-3xl font-light tracking-tight font-mono text-amber-600 dark:text-amber-400 mt-2">
+            {lateAlertCount}
+          </div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+            Flagged arrival notifications
+          </div>
+        </div>
+
+        <div className="p-5 flex flex-col justify-between">
+          <div className="text-[10px] font-mono uppercase tracking-widest text-slate-500 dark:text-slate-400 font-semibold">
+            PRIVACY INTEGRITY
+          </div>
+          <div className="text-sm font-semibold text-slate-900 dark:text-white mt-2">
+            Zero Raw Biometrics
+          </div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+            Vectors stay strictly local
+          </div>
         </div>
       </div>
 
-      {/* Manual Dispatch Bar */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3 text-xs shadow-xs">
-        <div className="flex items-center gap-2">
-          <span className="text-slate-700 font-semibold">Uji Coba Kirim Notifikasi WhatsApp:</span>
+      {/* Manual Dispatch Testing Ribbon */}
+      <div className="bg-white dark:bg-slate-900/80 border border-slate-200/80 dark:border-white/10 rounded-xl p-3 flex flex-wrap items-center justify-between gap-3 text-xs shadow-2xs dark:shadow-lg backdrop-blur-xl">
+        <div className="flex items-center gap-2 flex-1 min-w-[260px]">
+          <span className="text-slate-500 dark:text-slate-400 font-mono text-[11px]">MANUAL DISPATCH TEST:</span>
           <select
             value={selectedStudentForTestId}
             onChange={e => setSelectedStudentForTestId(e.target.value)}
             disabled={students.length === 0}
-            className="bg-slate-50 border border-slate-300 rounded-lg px-3 py-1.5 text-slate-800 font-medium focus:outline-none focus:border-emerald-500 disabled:opacity-50"
+            className="bg-slate-50 dark:bg-slate-950/80 border border-slate-200 dark:border-white/10 rounded-lg px-3 py-1.5 text-xs text-slate-800 dark:text-slate-200 font-medium focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:opacity-50"
           >
             {students.length === 0 ? (
-              <option value="">Belum ada siswa terdaftar</option>
+              <option value="">No enrolled students</option>
             ) : (
               students.map(s => (
                 <option key={s.id} value={s.id}>
-                  {s.name} → Ortu: {s.parentName} ({s.parentPhone})
+                  {s.name} → Parent: {s.parentName} ({s.parentPhone})
                 </option>
               ))
             )}
@@ -157,115 +198,163 @@ export const WhatsAppHubView: React.FC = () => {
         <button
           onClick={handleManualTestSend}
           disabled={students.length === 0}
-          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg font-bold flex items-center gap-1.5 transition-all shadow-xs active:scale-95 cursor-pointer"
+          className="px-3.5 py-1.5 bg-[#174384] hover:bg-[#13376e] text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all shadow-md active:scale-98 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed border border-blue-400/25"
         >
-          <Send className="w-3.5 h-3.5" />
-          Kirim Notifikasi WA Sekarang
+          <Send className="w-3 h-3 text-emerald-400" />
+          <span>Dispatch Test Notice</span>
         </button>
       </div>
 
       {/* WhatsApp Logs Table */}
-      <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
-        <div className="p-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
-          <div className="relative w-full max-w-xs">
+      <div className="bg-white dark:bg-slate-900/80 border border-slate-200/80 dark:border-white/10 rounded-2xl overflow-hidden shadow-2xs dark:shadow-xl backdrop-blur-xl">
+        <div className="p-3.5 border-b border-slate-100 dark:border-white/5 flex flex-wrap items-center justify-between gap-3">
+          <div className="relative w-full sm:w-72">
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Cari siswa, nama orang tua, atau no HP..."
+              placeholder="Search recipient or phone..."
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-300 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-emerald-500"
+              className="w-full bg-slate-50 dark:bg-slate-950/80 border border-slate-200 dark:border-white/10 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
             />
           </div>
 
-          <div className="text-xs text-slate-500 font-mono">
-            Total Log WhatsApp: <span className="text-emerald-700 font-bold">{filteredLogs.length}</span>
+          <div className="text-[11px] font-mono text-slate-600 dark:text-slate-400">
+            RECORDED: <span className="text-slate-900 dark:text-emerald-400 font-bold">{filteredLogs.length}</span> ALERTS
           </div>
         </div>
 
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
-            <thead className="bg-slate-50 border-b border-slate-200 text-slate-700 font-semibold">
+            <thead className="bg-slate-50/80 dark:bg-slate-950/60 border-b border-slate-200/80 dark:border-white/10 text-[10px] font-mono uppercase tracking-wider text-slate-600 dark:text-slate-400 font-semibold">
               <tr>
-                <th className="py-3 px-4">Waktu Kirim</th>
-                <th className="py-3 px-4">Siswa / NIS</th>
-                <th className="py-3 px-4">Penerima (Orang Tua / Wali)</th>
-                <th className="py-3 px-4">Tipe Notifikasi</th>
-                <th className="py-3 px-4">Pratinjau Pesan WA</th>
-                <th className="py-3 px-4 text-right">Status Pengiriman</th>
+                <th className="py-3 px-4">TIMESTAMP</th>
+                <th className="py-3 px-4">STUDENT</th>
+                <th className="py-3 px-4">PARENT RECIPIENT</th>
+                <th className="py-3 px-4">TYPE</th>
+                <th className="py-3 px-4">PAYLOAD PREVIEW</th>
+                <th className="py-3 px-4 text-center">STATUS PENGIRIMAN</th>
+                <th className="py-3 px-4 text-right">AKSI</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 text-slate-700">
+            <tbody className="divide-y divide-slate-100 dark:divide-white/5 text-slate-700 dark:text-slate-300">
               {filteredLogs.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-16 text-center">
+                  <td colSpan={7} className="py-16 text-center">
                     <div className="max-w-xs mx-auto space-y-2 text-slate-400">
-                      <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto text-slate-400">
-                        <MessageSquare className="w-6 h-6" />
+                      <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center mx-auto text-slate-400 dark:text-slate-500">
+                        <Inbox className="w-5 h-5" />
                       </div>
-                      <div className="font-bold text-slate-700 text-sm">
-                        Belum Ada Notifikasi WhatsApp
+                      <div className="font-semibold text-slate-700 dark:text-slate-200 text-xs">
+                        No WhatsApp Dispatches Logged
                       </div>
-                      <p className="text-xs text-slate-500">
-                        Setiap kali siswa berhasil teridentifikasi saat melintas di gerbang, bukti presensi akan terkirim dan dicatat di sini.
+                      <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
+                        Automatic parent notifications will be logged here as students walk through the gate.
                       </p>
                     </div>
                   </td>
                 </tr>
               ) : (
-                filteredLogs.map((log: WhatsAppLog) => (
-                  <tr key={log.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="py-3 px-4 font-mono text-slate-500 whitespace-nowrap">
-                      {log.timestamp}
-                    </td>
-                    <td className="py-3 px-4">
-                      <div className="flex items-center gap-2.5">
-                        {log.photoUrl ? (
-                          <img
-                            src={log.photoUrl}
-                            alt={log.studentName}
-                            className="w-8 h-8 rounded-lg object-cover border border-emerald-500 shadow-2xs shrink-0"
-                          />
-                        ) : (
-                          <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center border border-emerald-300 shrink-0 text-xs">
-                            {log.studentName.charAt(0)}
+                filteredLogs.map((log: WhatsAppLog) => {
+                  const isLateMsg = log.messageType.toLowerCase().includes('late') || log.messageType.toLowerCase().includes('terlambat');
+                  const isFailed = log.deliveryStatus === 'FAILED';
+                  const isPending = log.deliveryStatus === 'PENDING';
+                  const isCorrection = log.isCorrection || log.deliveryStatus === 'REVISED';
+                  const retryCount = log.retryCount || 0;
+
+                  return (
+                    <tr key={log.id} className="hover:bg-slate-50/70 dark:hover:bg-white/[0.03] transition-colors">
+                      <td className="py-3 px-4 font-mono text-slate-600 dark:text-slate-400 whitespace-nowrap">
+                        <div>{log.timestamp}</div>
+                        {retryCount > 0 && (
+                          <div className="text-[9px] text-sky-500 font-mono mt-0.5">
+                            Retry ke-{retryCount}
                           </div>
                         )}
-                        <div>
-                          <div className="font-bold text-slate-900">{log.studentName}</div>
-                          <div className="text-[11px] text-slate-500 font-mono">{log.studentId}</div>
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-2.5">
+                          {log.photoUrl ? (
+                            <img
+                              src={log.photoUrl}
+                              alt={log.studentName}
+                              className="w-8 h-8 rounded-lg object-cover ring-1 ring-slate-900/10 dark:ring-white/10 shadow-2xs shrink-0"
+                            />
+                          ) : (
+                            <div className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono font-bold flex items-center justify-center border border-slate-200 dark:border-white/10 shrink-0 text-xs">
+                              {log.studentName.charAt(0)}
+                            </div>
+                          )}
+                          <div>
+                            <div className="font-semibold text-slate-900 dark:text-white text-xs">{log.studentName}</div>
+                            <div className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">{log.studentId}</div>
+                          </div>
                         </div>
-                      </div>
-                    </td>
-                    <td className="py-3 px-4">
-                      <div className="text-slate-900 font-medium">{log.parentName}</div>
-                      <div className="text-[11px] text-emerald-700 font-mono font-semibold flex items-center gap-1">
-                        <Phone className="w-3 h-3" />
-                        {log.parentPhone}
-                      </div>
-                    </td>
-                    <td className="py-3 px-4">
-                      <span
-                        className={`px-2.5 py-0.5 rounded text-[10px] font-semibold ${
-                          log.messageType === 'Terlambat'
-                            ? 'bg-amber-100 text-amber-800 border border-amber-300'
-                            : 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                        }`}
-                      >
-                        {log.messageType}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-[11px] text-slate-600 max-w-xs truncate font-mono">
-                      {log.content.replace(/\n/g, ' ')}
-                    </td>
-                    <td className="py-3 px-4 text-right">
-                      <span className="inline-flex items-center gap-1 text-sky-700 font-bold font-mono text-[11px]">
-                        <CheckCheck className="w-4 h-4 text-sky-600" />
-                        Terkirim &amp; Dibaca
-                      </span>
-                    </td>
-                  </tr>
-                ))
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="text-slate-900 dark:text-white font-medium text-xs">{log.parentName}</div>
+                        <div className="text-[10px] text-slate-500 dark:text-slate-400 font-mono flex items-center gap-1 mt-0.5">
+                          <Phone className="w-2.5 h-2.5" />
+                          {log.parentPhone}
+                        </div>
+                      </td>
+                      <td className="py-3 px-4">
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono font-semibold tracking-wide ${
+                            isCorrection
+                              ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-700/50'
+                              : isLateMsg
+                              ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border border-amber-200/80 dark:border-amber-700/50'
+                              : 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border border-emerald-200/80 dark:border-emerald-700/50'
+                          }`}
+                        >
+                          {isCorrection ? 'REVISI' : isLateMsg ? 'LATE' : 'ON TIME'}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-[11px] text-slate-600 dark:text-slate-300 max-w-xs truncate font-mono">
+                        {log.content.replace(/\n/g, ' ')}
+                      </td>
+                      <td className="py-3 px-4 text-center whitespace-nowrap">
+                        {isFailed ? (
+                          <span className="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400 font-mono text-[10px] font-bold bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20">
+                            <AlertCircle className="w-3 h-3 text-rose-500" />
+                            GAGAL (No. Invalid)
+                          </span>
+                        ) : isPending ? (
+                          <span className="inline-flex items-center gap-1 text-slate-600 dark:text-slate-400 font-mono text-[10px] font-bold bg-slate-500/10 px-2 py-0.5 rounded border border-slate-500/20 animate-pulse">
+                            <RefreshCw className="w-3 h-3 text-slate-400 animate-spin" />
+                            MENUNGGU JARINGAN
+                          </span>
+                        ) : isCorrection ? (
+                          <span className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 font-mono text-[10px] font-bold bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20">
+                            <CheckCheck className="w-3 h-3 text-blue-500" />
+                            REVISI TERKIRIM
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-mono text-[10px] font-semibold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                            <CheckCheck className="w-3 h-3 text-emerald-500" />
+                            TERKIRIM
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <button
+                          onClick={async () => {
+                            setResendingId(log.id);
+                            await resendWhatsAppNotification(log.id);
+                            setResendingId(null);
+                          }}
+                          disabled={resendingId === log.id}
+                          className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-lg text-[10px] font-bold font-mono inline-flex items-center gap-1 border border-slate-200 dark:border-white/10 cursor-pointer active:scale-95 transition-all disabled:opacity-50"
+                          title="Kirim ulang notifikasi WhatsApp ini ke orang tua"
+                        >
+                          <RefreshCw className={`w-3 h-3 ${resendingId === log.id ? 'animate-spin' : ''}`} />
+                          <span>{resendingId === log.id ? 'Mengirim...' : 'Kirim Ulang'}</span>
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>

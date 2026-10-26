@@ -32,14 +32,29 @@ export async function loadFaceApiModels(): Promise<boolean> {
 
   modelLoadingPromise = (async () => {
     try {
+      // Optimasi WebGL backend jika didukung browser untuk akselerasi GPU maksimal
+      try {
+        if ((faceapi as any).tf && typeof (faceapi as any).tf.getBackend === 'function') {
+          const backend = (faceapi as any).tf.getBackend();
+          if (backend === 'webgl' && (faceapi as any).tf.env) {
+            (faceapi as any).tf.env().set('WEBGL_PACK', true);
+            (faceapi as any).tf.env().set('WEBGL_PACK_BINARY_OPERATIONS', true);
+          }
+        }
+      } catch {
+        // Abaikan jika env tfjs tidak mendukung flag packing
+      }
+
       const MODEL_URL = '/models';
       await Promise.all([
         faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+        faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL),
+        faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
         faceapi.nets.faceLandmark68TinyNet.loadFromUri(MODEL_URL),
         faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL)
       ]);
       modelsLoaded = true;
-      console.log('✅ Neural Network Face Detection & Recognition Models Loaded Successfully!');
+      console.log('✅ Neural Network Face Detection (Tiny + SSD MobileNet V1) & 3D 68 Landmark Models Loaded Successfully!');
       return true;
     } catch (err) {
       console.error('Failed to load neural network face models:', err);
@@ -65,22 +80,31 @@ export async function detectHumanFace(videoElement: HTMLVideoElement | null): Pr
   }
 
   try {
+    // 1. Deteksi cepat resolusi tinggi & jangkauan jauh (inputSize 512, score 0.08)
     const options = new faceapi.TinyFaceDetectorOptions({
-      inputSize: 224,
-      scoreThreshold: 0.40
+      inputSize: 512,
+      scoreThreshold: 0.08
     });
 
-    const result = await faceapi.detectSingleFace(videoElement, options);
+    let result = await faceapi.detectSingleFace(videoElement, options);
+
+    // 2. Fallback SSD MobileNet V1
+    if (!result) {
+      const ssdOptions = new faceapi.SsdMobilenetv1Options({
+        minConfidence: 0.15
+      });
+      result = await faceapi.detectSingleFace(videoElement, ssdOptions);
+    }
 
     if (result && result.box) {
       const vw = videoElement.videoWidth || 640;
       const vh = videoElement.videoHeight || 480;
 
-      // Konversi koordinat pixel ke persentase (0-100%)
-      const xPct = Math.max(0, Math.min(90, (result.box.x / vw) * 100));
-      const yPct = Math.max(0, Math.min(90, (result.box.y / vh) * 100));
-      const wPct = Math.max(10, Math.min(90, (result.box.width / vw) * 100));
-      const hPct = Math.max(10, Math.min(90, (result.box.height / vh) * 100));
+      // Konversi koordinat pixel ke persentase (0-100%) dengan batas minimal 1.5% untuk wajah jauh
+      const xPct = Math.max(0, Math.min(95, (result.box.x / vw) * 100));
+      const yPct = Math.max(0, Math.min(95, (result.box.y / vh) * 100));
+      const wPct = Math.max(1.5, Math.min(90, (result.box.width / vw) * 100));
+      const hPct = Math.max(1.5, Math.min(90, (result.box.height / vh) * 100));
 
       return {
         hasFace: true,

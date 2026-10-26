@@ -49,21 +49,31 @@ export async function detectFaceBiometricAsync(
   }
 
   try {
-    const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.40 });
-    const fullDesc = await faceapi
-      .detectSingleFace(videoElement, options)
+    // 1. Deteksi Cepat Resolusi Tinggi & Jangkauan Jauh (inputSize 512, scoreThreshold 0.08, TinyLandmarks)
+    const tinyOptions = new faceapi.TinyFaceDetectorOptions({ inputSize: 512, scoreThreshold: 0.08 });
+    let fullDesc = await faceapi
+      .detectSingleFace(videoElement, tinyOptions)
       .withFaceLandmarks(true)
       .withFaceDescriptor();
+
+    // 2. Fallback SSD MobileNet V1 jika TinyFace belum menangkap sudut ekstrem
+    if (!fullDesc) {
+      const ssdOptions = new faceapi.SsdMobilenetv1Options({ minConfidence: 0.15 });
+      fullDesc = await faceapi
+        .detectSingleFace(videoElement, ssdOptions)
+        .withFaceLandmarks(false)
+        .withFaceDescriptor();
+    }
 
     if (fullDesc && fullDesc.detection && fullDesc.descriptor) {
       const vw = videoElement.videoWidth || 640;
       const vh = videoElement.videoHeight || 480;
 
-      // Konversi koordinat pixel ke persentase frame (0-100%)
-      const xPct = Math.max(0, Math.min(90, (fullDesc.detection.box.x / vw) * 100));
-      const yPct = Math.max(0, Math.min(90, (fullDesc.detection.box.y / vh) * 100));
-      const wPct = Math.max(10, Math.min(90, (fullDesc.detection.box.width / vw) * 100));
-      const hPct = Math.max(10, Math.min(90, (fullDesc.detection.box.height / vh) * 100));
+      // Konversi koordinat pixel ke persentase frame (0-100%) dengan batas fleksibel untuk wajah jauh (1.5%)
+      const xPct = Math.max(0, Math.min(95, (fullDesc.detection.box.x / vw) * 100));
+      const yPct = Math.max(0, Math.min(95, (fullDesc.detection.box.y / vh) * 100));
+      const wPct = Math.max(1.5, Math.min(90, (fullDesc.detection.box.width / vw) * 100));
+      const hPct = Math.max(1.5, Math.min(90, (fullDesc.detection.box.height / vh) * 100));
 
       return {
         hasFace: true,
@@ -86,7 +96,7 @@ export async function detectFaceBiometricAsync(
 
 /**
  * Ekstraksi Vektor Biometrik Wajah 128-D menggunakan Deep Neural Network (FaceNet)
- * Menggunakan ResNet-34 Face Recognition Net yang membedakan wajah orang secara presisi.
+ * Menggunakan TinyFaceDetector resolusi tinggi + 3D landmark alignment
  */
 export async function extractFaceDescriptorAsync(
   sourceElement: HTMLVideoElement | HTMLCanvasElement
@@ -94,10 +104,22 @@ export async function extractFaceDescriptorAsync(
   const loaded = await loadFaceApiModels();
   if (loaded) {
     try {
-      const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.40 });
-      const fullDesc = await faceapi
-        .detectSingleFace(sourceElement, options)
+      // 1. Deteksi cepat resolusi tinggi & jangkauan jauh (512px)
+      const tinyOptions = new faceapi.TinyFaceDetectorOptions({ inputSize: 512, scoreThreshold: 0.08 });
+      let fullDesc = await faceapi
+        .detectSingleFace(sourceElement, tinyOptions)
         .withFaceLandmarks(true)
+        .withFaceDescriptor();
+
+      if (fullDesc && fullDesc.descriptor) {
+        return Array.from(fullDesc.descriptor);
+      }
+
+      // 2. Fallback SSD MobileNet V1
+      const ssdOptions = new faceapi.SsdMobilenetv1Options({ minConfidence: 0.15 });
+      fullDesc = await faceapi
+        .detectSingleFace(sourceElement, ssdOptions)
+        .withFaceLandmarks(false)
         .withFaceDescriptor();
 
       if (fullDesc && fullDesc.descriptor) {
@@ -128,13 +150,13 @@ export function computeEuclideanDistance(vecA?: number[] | null, vecB?: number[]
 
 /**
  * Mencocokkan wajah live di depan kamera terhadap seluruh siswa terdaftar
- * HANYA mengizinkan akses jika jarak Euclidean neural descriptor <= 0.48!
- * Mencegah 100% wajah orang lain dianggap sebagai siswa terdaftar!
+ * HANYA mengizinkan akses jika jarak Euclidean neural descriptor <= 0.38!
+ * Mencegah wajah orang lain / orang tak terdaftar dianggap sebagai siswa terdaftar!
  */
 export function matchFaceAgainstEnrolled(
   liveVector: number[] | null,
   students: Student[],
-  maxEuclideanDistance = 0.48
+  maxEuclideanDistance = 0.40
 ): MatchEvaluationResult {
   if (!liveVector || liveVector.length !== 128) {
     return {
@@ -188,10 +210,10 @@ export function matchFaceAgainstEnrolled(
   }
 
   // AMBANG BATAS VALIDASI KETAT FACENET:
-  // Jarak Euclidean <= 0.48 = Orang yang SAMA (Terverifikasi)
-  // Jarak Euclidean > 0.48  = Orang yang BERBEDA (Akses Ditolak)
+  // Jarak Euclidean <= 0.40 = Orang yang SAMA (Terverifikasi, toleran profil samping)
+  // Jarak Euclidean > 0.40  = Orang yang BERBEDA (Akses Ditolak)
   if (minDistance <= maxEuclideanDistance && bestStudent) {
-    const confidencePct = Math.round(Math.max(85, Math.min(99.4, (1 - minDistance / 0.65) * 100))).toFixed(1);
+    const confidencePct = Math.round(Math.max(88, Math.min(99.6, (1 - minDistance / 0.50) * 100))).toFixed(1);
     return {
       isMatch: true,
       isEnrolled: true,

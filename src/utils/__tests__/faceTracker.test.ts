@@ -102,30 +102,72 @@ describe('faceTracker & multi-vector biometric math', () => {
     let tracks = new Map();
     const now = Date.now();
 
-    // Frame 1: Single detection at x=30, y=30
-    const frame1Detections = [
-      { box: { x: 30, y: 30, w: 20, h: 30 }, descriptor: new Array(128).fill(0.11) }
-    ];
-    tracks = updateTracksWithDetections(tracks, frame1Detections, [student], now);
+    // Frame 1: Detection at x=30, y=30 (Streak 1, waiting for consensus)
+    const descriptor = new Array(128).fill(0.11);
+    tracks = updateTracksWithDetections(tracks, [{ box: { x: 30, y: 30, w: 20, h: 30 }, descriptor }], [student], now);
     expect(tracks.size).toBe(1);
-    const trackValues = Array.from(tracks.values());
-    expect(trackValues[0].isVerified).toBe(true);
-    expect(trackValues[0].studentName).toBe('Ahmad Dahlan');
+    expect(Array.from(tracks.values())[0].isVerified).toBe(false); // Frame 1: prevents single-frame false matches
 
-    // Frame 2: Person took a step to x=33, y=30
-    const frame2Detections = [
-      { box: { x: 33, y: 30, w: 20, h: 30 } }
-    ];
-    tracks = updateTracksWithDetections(tracks, frame2Detections, [student], now + 50);
-    expect(tracks.size).toBe(1);
-    // Track ID should remain consistent, verified status retained
+    // Frame 2: Same person at x=31, y=30 (Streak 2)
+    tracks = updateTracksWithDetections(tracks, [{ box: { x: 31, y: 30, w: 20, h: 30 }, descriptor }], [student], now + 33);
+    expect(Array.from(tracks.values())[0].isVerified).toBe(false);
+
+    // Frame 3: Confirmed consensus (Streak 3) -> Verified!
+    tracks = updateTracksWithDetections(tracks, [{ box: { x: 32, y: 30, w: 20, h: 30 }, descriptor }], [student], now + 66);
+    expect(Array.from(tracks.values())[0].isVerified).toBe(true);
     expect(Array.from(tracks.values())[0].studentName).toBe('Ahmad Dahlan');
 
-    // Frame 3 to 10: Person walked out of camera (empty frames)
+    // Frame 4: Person walked out of camera (empty frames)
     for (let i = 0; i < 7; i++) {
       tracks = updateTracksWithDetections(tracks, [], [student], now + 100 + i * 50);
     }
     // Track should be cleanly purged after missing frames threshold
     expect(tracks.size).toBe(0);
+  });
+
+  it('instantly revokes verification if a different person steps into the track', () => {
+    const studentVec = new Array(128).fill(0.1);
+    const student: Student = {
+      id: 'NIS-001',
+      name: 'Ahmad Dahlan',
+      class: '10-IPA-1',
+      gender: 'L',
+      parentName: 'Ayah Ahmad',
+      parentPhone: '08123456789',
+      enrolledAt: '10:00',
+      consentCertified: true,
+      faceDescriptors: [studentVec]
+    };
+
+    let tracks = new Map();
+    const now = Date.now();
+
+    // 3 frames of true student to verify
+    for (let i = 0; i < 3; i++) {
+      tracks = updateTracksWithDetections(
+        tracks,
+        [{ box: { x: 30, y: 30, w: 20, h: 30 }, descriptor: new Array(128).fill(0.11) }],
+        [student],
+        now + i * 33
+      );
+    }
+    expect(Array.from(tracks.values())[0].isVerified).toBe(true);
+    expect(Array.from(tracks.values())[0].studentName).toBe('Ahmad Dahlan');
+
+    // Stranger steps into the exact same track box with distance > 0.44
+    const strangerDescriptor = new Array(128).fill(0.8);
+    tracks = updateTracksWithDetections(
+      tracks,
+      [{ box: { x: 30, y: 30, w: 20, h: 30 }, descriptor: strangerDescriptor }],
+      [student],
+      now + 100
+    );
+
+    // Verification must be REVOKED immediately!
+    const track = Array.from(tracks.values())[0];
+    expect(track.isVerified).toBe(false);
+    expect(track.studentId).toBeNull();
+    expect(track.studentName).toBeNull();
+    expect(track.isAnonymous).toBe(true);
   });
 });

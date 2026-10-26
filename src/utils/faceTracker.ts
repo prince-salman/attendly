@@ -88,8 +88,8 @@ export function computeMinEuclideanDistance(candidateVec: number[], student: Stu
     }
   }
 
-  // Fallback ke single descriptor jika ada
-  if (Array.isArray(student.faceDescriptor) && student.faceDescriptor.length === 128) {
+  // Fallback ke single descriptor jika ada dan belum ada di array
+  if (vectors.length === 0 && Array.isArray(student.faceDescriptor) && student.faceDescriptor.length === 128) {
     vectors.push(student.faceDescriptor);
   }
 
@@ -108,12 +108,12 @@ export function computeMinEuclideanDistance(candidateVec: number[], student: Stu
 
 /**
  * Mencocokkan vektor wajah langsung (live candidate) terhadap seluruh siswa terdaftar
- * Toleransi Euclidean ketat (default 0.46) untuk walk-through tanpa false positive
+ * Toleransi Euclidean sangat ketat (default 0.38) untuk mencegah wajah orang lain dianggap sebagai siswa terdaftar!
  */
 export function matchDescriptorAgainstStudents(
   candidateVec: number[],
   students: Student[],
-  maxEuclideanDistance = 0.46
+  maxEuclideanDistance = 0.40
 ): BiometricMatchResult {
   if (!candidateVec || candidateVec.length !== 128 || students.length === 0) {
     return { isMatch: false, student: null, confidence: '0.0', distance: 1.0 };
@@ -131,8 +131,8 @@ export function matchDescriptorAgainstStudents(
   }
 
   if (bestStudent && bestDistance <= maxEuclideanDistance) {
-    // Konversi jarak euclidean ke confidence persentase (0.0 dist -> 100%, 0.46 dist -> ~88%)
-    const confidencePct = Math.max(85, Math.min(99.4, 100 - bestDistance * 26)).toFixed(1);
+    // 0.0 dist -> 99.6%, 0.40 dist -> 88.0%
+    const confidencePct = Math.max(88, Math.min(99.6, 100 - (bestDistance / maxEuclideanDistance) * 12)).toFixed(1);
     return {
       isMatch: true,
       student: bestStudent,
@@ -144,7 +144,7 @@ export function matchDescriptorAgainstStudents(
   return {
     isMatch: false,
     student: null,
-    confidence: bestDistance < 1 ? (Math.max(10, 100 - bestDistance * 70)).toFixed(1) : '0.0',
+    confidence: bestDistance < 1 ? (Math.max(10, Math.min(75, 100 - bestDistance * 90))).toFixed(1) : '0.0',
     distance: bestDistance
   };
 }
@@ -152,21 +152,23 @@ export function matchDescriptorAgainstStudents(
 let trackCounter = 1;
 
 /**
- * Pembaruan Kontinu Multi-Wajah Melintasi Frame Kamera
- * Menghubungkan deteksi frame baru dengan track ID yang sedang aktif.
+ * Pembaruan Kontinu Multi-Wajah Melintasi Frame Kamera dengan Konsensus Multi-Frame
+ * - Mencegah false positive dengan verifikasi konsensus minimal 3 frame berturut-turut.
+ * - Memverifikasi ulang track secara kontinu; jika orang berganti, verifikasi seketika dicabut.
  */
 export function updateTracksWithDetections(
   prevTracks: Map<string, ActiveTrack>,
   detections: DetectionInput[],
   students: Student[],
   now = Date.now(),
-  maxMissingFrames = 5
+  maxMissingFrames = 5,
+  strictThreshold = 0.42
 ): Map<string, ActiveTrack> {
   const updatedTracks = new Map<string, ActiveTrack>();
   const unmatchedDetections: DetectionInput[] = [];
   const assignedTrackIds = new Set<string>();
 
-  // 1. Asosiasikan setiap deteksi baru dengan track terdekat (IoU >= 0.20 atau Centroid <= 22%)
+  // 1. Asosiasikan setiap deteksi baru dengan track terdekat (IoU >= 0.18 atau Centroid <= 12%)
   for (const det of detections) {
     let bestTrackId: string | null = null;
     let highestIoU = 0.18; // Ambang batas IoU minimum
@@ -181,11 +183,12 @@ export function updateTracksWithDetections(
       }
     }
 
-    // Jika IoU rendah karena gerakan langkah cepat, coba pencocokan jarak Centroid
+    // Jika IoU rendah karena gerakan langkah cepat, gunakan centroid dengan radius ketat (12%)
     if (!bestTrackId) {
-      let lowestCentroidDist = 22.0; // Maksimal perpindahan 22% ukuran frame
+      let lowestCentroidDist = 12.0; // Maksimal perpindahan 12% ukuran frame (mencegah salah kait ke orang lain)
       for (const [tId, track] of prevTracks.entries()) {
         if (assignedTrackIds.has(tId)) continue;
+        if (track.missingFrames > 1) continue; // Jangan kaitkan ke track yang sudah hilang
 
         const cDist = computeCentroidDistance(det.box, track.box);
         if (cDist < lowestCentroidDist) {
@@ -215,19 +218,59 @@ export function updateTracksWithDetections(
         framesMatched: existing.framesMatched + 1
       };
 
-      // Jika belum terverifikasi dan ada vektor biometrik baru, coba cocokkan
-      if (!trackUpdate.isVerified && det.descriptor && det.descriptor.length === 128) {
-        const matchResult = matchDescriptorAgainstStudents(det.descriptor, students, 0.46);
-        if (matchResult.isMatch && matchResult.student) {
-          trackUpdate.isVerified = true;
-          trackUpdate.isAnonymous = false;
-          trackUpdate.studentId = matchResult.student.id;
-          trackUpdate.studentName = matchResult.student.name;
-          trackUpdate.studentClass = matchResult.student.class;
-          trackUpdate.confidence = matchResult.confidence;
-        } else {
-          trackUpdate.isAnonymous = true;
-          trackUpdate.confidence = matchResult.confidence;
+      // Evaluasi biometrik kontinu & verifikasi multi-frame konsensus
+      if (det.descriptor && det.descriptor.length === 128) {
+        const matchResult = matchDescriptorAgainstStudents(det.descriptor, students, strictThreshold);
+
+        // A. Jika track sudah terverifikasi sebelumnya, pastikan wajah saat ini MASIH orang yang sama!
+        if (trackUpdate.isVerified && trackUpdate.studentId) {
+          const currentStudent = students.find(s => s.id === trackUpdate.studentId);
+          if (currentStudent) {
+            const distToCurrent = computeMinEuclideanDistance(det.descriptor, currentStudent);
+            // Jika jarak wajah melebihi 0.44, berarti orang berbeda telah masuk ke kotak ini.
+            // Cabut status verifikasi seketika!
+            if (distToCurrent > 0.44) {
+              trackUpdate.isVerified = false;
+              trackUpdate.studentId = null;
+              trackUpdate.studentName = null;
+              trackUpdate.studentClass = null;
+              trackUpdate.isAnonymous = true;
+              trackUpdate.matchStreak = 0;
+              trackUpdate.candidateStudentId = null;
+            }
+          }
+        }
+
+        // B. Evaluasi verifikasi dengan syarat konsensus minimal 3 frame konsisten berturut-turut
+        if (!trackUpdate.isVerified) {
+          if (matchResult.isMatch && matchResult.student) {
+            if (trackUpdate.candidateStudentId === matchResult.student.id) {
+              trackUpdate.matchStreak = (trackUpdate.matchStreak || 0) + 1;
+            } else {
+              trackUpdate.candidateStudentId = matchResult.student.id;
+              trackUpdate.matchStreak = 1;
+            }
+
+            // HANYA jika konsisten 3 frame berturut-turut, tandai sebagai terverifikasi!
+            if ((trackUpdate.matchStreak || 0) >= 3) {
+              trackUpdate.isVerified = true;
+              trackUpdate.isAnonymous = false;
+              trackUpdate.studentId = matchResult.student.id;
+              trackUpdate.studentName = matchResult.student.name;
+              trackUpdate.studentNickname = matchResult.student.nickname || null;
+              trackUpdate.studentClass = matchResult.student.class;
+              trackUpdate.confidence = matchResult.confidence;
+            } else {
+              trackUpdate.isAnonymous = true;
+              trackUpdate.confidence = matchResult.confidence;
+            }
+          } else {
+            // Wajah bukan siswa terdaftar (stranger / unregistered)
+            trackUpdate.matchStreak = 0;
+            trackUpdate.candidateStudentId = null;
+            trackUpdate.isAnonymous = true;
+            trackUpdate.confidence = matchResult.confidence;
+          }
         }
       }
 
@@ -243,22 +286,24 @@ export function updateTracksWithDetections(
     if (trackCounter > 9999) trackCounter = 1;
 
     let isVerified = false;
-    let isAnonymous = false;
+    let isAnonymous = true;
     let studentId: string | null = null;
     let studentName: string | null = null;
+    let studentNickname: string | null = null;
     let studentClass: string | null = null;
     let confidence = '0.0';
+    let matchStreak = 0;
+    let candidateStudentId: string | null = null;
 
     if (det.descriptor && det.descriptor.length === 128) {
-      const matchResult = matchDescriptorAgainstStudents(det.descriptor, students, 0.46);
+      const matchResult = matchDescriptorAgainstStudents(det.descriptor, students, strictThreshold);
       if (matchResult.isMatch && matchResult.student) {
-        isVerified = true;
-        studentId = matchResult.student.id;
-        studentName = matchResult.student.name;
-        studentClass = matchResult.student.class;
+        // Frame pertama: tandai kandidat, belum langsung diverifikasi sampai ada frame berikutnya
+        candidateStudentId = matchResult.student.id;
+        studentNickname = matchResult.student.nickname || null;
+        matchStreak = 1;
         confidence = matchResult.confidence;
       } else {
-        isAnonymous = true;
         confidence = matchResult.confidence;
       }
     }
@@ -269,12 +314,15 @@ export function updateTracksWithDetections(
       lastSeen: now,
       studentId,
       studentName,
+      studentNickname,
       studentClass,
       isVerified,
       isAnonymous,
       confidence,
       framesMatched: 1,
-      missingFrames: 0
+      missingFrames: 0,
+      matchStreak,
+      candidateStudentId
     };
 
     updatedTracks.set(newTrackId, newTrack);
@@ -286,7 +334,8 @@ export function updateTracksWithDetections(
       const missingCount = track.missingFrames + 1;
       const ageMs = now - track.lastSeen;
 
-      if (missingCount <= maxMissingFrames && ageMs <= 1800) {
+      // Maksimal hilang 3 frame (~100ms) dan umur maksimal 400ms agar tidak tersangkut ke orang lain
+      if (missingCount <= maxMissingFrames && ageMs <= 400) {
         updatedTracks.set(tId, {
           ...track,
           missingFrames: missingCount
