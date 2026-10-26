@@ -527,6 +527,15 @@ app.add_middleware(
 # REST Endpoints
 # ──────────────────────────────────────────────────────────
 
+@app.get("/")
+async def root():
+    return {
+        "service": "Attendly Python Recognition Backend",
+        "status": "online",
+        "health": "/health",
+        "enrolled_count": len(students),
+    }
+
 @app.get("/health")
 async def health():
     return {
